@@ -8,7 +8,8 @@ RTMPを使用してLIVE配信を行うためのアプリです。
 
 ## Requirement
 
-iOS 11.0 以上 (カメラだけならiOS 8.0)
+1. Swift 4.1
+2. iOS 11.0 以上 (カメラだけならiOS 8.0)
 
 ## Install
 
