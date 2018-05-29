@@ -32,22 +32,19 @@ class RecorderDelegate: DefaultAVMixerRecorderDelegate {
 
 final class LiveViewController: UIViewController {
     // RTMP対応のServer情報を下さい　※認証が入らない場合は[user name]:[password]@は入らないです。
-    fileprivate let targetURL = "rtmp://[username]:[password]@[ip]:[port]/[application name]"
+    fileprivate let targetURL = "rtmp://[user name]:[password]@[ip]:[port]/[application name]"
     
     var rtmpConnection: RTMPConnection = RTMPConnection()
     var rtmpStream: RTMPStream!
     var sharedObject: RTMPSharedObject!
-    var currentEffect: VisualEffect?
     var currentPosition: AVCaptureDevice.Position = .back
 
-    @IBOutlet var lfView: GLHKView?
-    @IBOutlet var publishButton: UIButton?
-    @IBOutlet var pauseButton: UIButton?
-    @IBOutlet var videoBitrateLabel: UILabel?
-    @IBOutlet var videoBitrateSlider: UISlider?
-    @IBOutlet var audioBitrateLabel: UILabel?
-    @IBOutlet var audioBitrateSlider: UISlider?
-    @IBOutlet var fpsControl: UISegmentedControl?
+    @IBOutlet weak var torchButton: UIButton!
+    @IBOutlet weak var cameraButton: UIButton!
+    @IBOutlet weak var lfView: GLHKView!
+    @IBOutlet weak var publishButton: UIButton!
+    @IBOutlet weak var micButton: UIButton!
+    @IBOutlet weak var bitrateControl: UISegmentedControl!
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -56,21 +53,23 @@ final class LiveViewController: UIViewController {
         self.rtmpStream.captureSettings = [
             "sessionPreset": AVCaptureSession.Preset.hd1280x720.rawValue,
             "continuousAutofocus": true,
-            "continuousExposure": true
+            "continuousExposure": true,
+            "fps": 30.0
         ]
-        self.rtmpStream.videoSettings = ["width": 720, "height": 1280]
-        self.rtmpStream.audioSettings = ["sampleRate": 44_100]
+        self.rtmpStream.videoSettings = [
+            "bitrate": 500 * 1024,
+            "width": 720,
+            "height": 1280,
+        ]
+        self.rtmpStream.audioSettings = ["sampleRate": 44_100, "bitrate": 96 * 1024]
         self.rtmpStream.mixer.recorder.delegate = RecorderDelegate()
-
-        self.videoBitrateSlider?.value = Float(RTMPStream.defaultVideoBitrate) / 1024
-        self.audioBitrateSlider?.value = Float(RTMPStream.defaultAudioBitrate) / 1024
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         self.rtmpStream.attachAudio(AVCaptureDevice.default(for: .audio))
         self.rtmpStream.attachCamera(DeviceUtil.device(withPosition: self.currentPosition))
-        self.lfView?.attachStream(self.rtmpStream)
+        self.lfView.attachStream(self.rtmpStream)
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -88,42 +87,32 @@ final class LiveViewController: UIViewController {
 
     @IBAction func toggleTorch(_ sender: UIButton) {
         self.rtmpStream.torch = !self.rtmpStream.torch
+        self.torchButton.setImage(UIImage(named: self.rtmpStream.torch ? "torch_off_button" : "torch_on_button"), for: UIControlState())
     }
 
-    @IBAction func on(slider: UISlider) {
-        if slider == self.audioBitrateSlider {
-            self.audioBitrateLabel?.text = "音声 \(Int(slider.value))/kbps"
-            self.rtmpStream.audioSettings["bitrate"] = slider.value * 1024
-        }
-        if slider == self.videoBitrateSlider {
-            self.videoBitrateLabel?.text = "映像 \(Int(slider.value))/kbps"
-            self.rtmpStream.videoSettings["bitrate"] = slider.value * 1024
-        }
-    }
-
-    @IBAction func on(pause: UIButton) {
-        self.rtmpStream.togglePause()
-        
-        if pause.isSelected {
-            pause.setTitle("P", for: [])
+    @IBAction func onPauseMic(_ sender: UIButton) {
+        if sender.isSelected {
+            self.rtmpStream.audioSettings["muted"] = false
+            self.micButton.setImage(UIImage(named: "mic_on_button"), for: UIControlState())
         } else {
-            pause.setTitle("M", for: [])
+            self.rtmpStream.audioSettings["muted"] = true
+            self.micButton.setImage(UIImage(named: "mic_off_button"), for: UIControlState())
         }
-        pause.isSelected = !pause.isSelected
+        sender.isSelected = !sender.isSelected
     }
 
     @IBAction func on(publish: UIButton) {
         if publish.isSelected {
+            // ロックしない
             UIApplication.shared.isIdleTimerDisabled = false
             self.rtmpConnection.close()
             self.rtmpConnection.removeEventListener(Event.RTMP_STATUS, selector: #selector(rtmpStatusHandler), observer: self)
-            publish.setTitle("●", for: [])
+            publish.setImage(UIImage(named: "play_button"), for: UIControlState())
         } else {
-            // ロックしない
             UIApplication.shared.isIdleTimerDisabled = true
             self.rtmpConnection.addEventListener(Event.RTMP_STATUS, selector: #selector(rtmpStatusHandler), observer: self)
             self.rtmpConnection.connect(self.targetURL)
-            publish.setTitle("■", for: [])
+            publish.setImage(UIImage(named: "pause_button"), for: UIControlState())
         }
         publish.isSelected = !publish.isSelected
     }
@@ -134,24 +123,20 @@ final class LiveViewController: UIViewController {
             switch code {
                 case RTMPConnection.Code.connectSuccess.rawValue:
                     self.rtmpStream!.publish("myStream")
-                default:
-                    // NOP
-                    break
+                default: break
             }
         }
     }
-
-    @IBAction func onFPSValueChanged(_ segment: UISegmentedControl) {
+    
+    @IBAction func onBitrateValueChanged(_ segment: UISegmentedControl) {
+        var btrate = 500 * 1024
         switch segment.selectedSegmentIndex {
-            case 0:
-                self.rtmpStream.captureSettings["fps"] = 15.0
-            case 1:
-                self.rtmpStream.captureSettings["fps"] = 30.0
-            case 2:
-                self.rtmpStream.captureSettings["fps"] = 60.0
-            default:
-                // NOP
-                break
+            case 0: btrate = 500 * 1024
+            case 1: btrate = 1000 * 1024
+            case 2: btrate = 1500 * 1024
+            case 3: btrate = 2000 * 1024
+            default: break
         }
+        self.rtmpStream.videoSettings["bitrate"] = btrate
     }
 }
